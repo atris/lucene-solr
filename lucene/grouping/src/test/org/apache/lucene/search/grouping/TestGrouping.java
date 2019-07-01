@@ -1205,6 +1205,15 @@ public class TestGrouping extends LuceneTestCase {
             groupField, mergedTopGroups, groupSort, docSort, docOffset + topNDocs, getMaxScores);
         subSearchers[shardIDX].search(w, secondPassCollector);
         shardTopGroups[shardIDX] = getTopGroups(secondPassCollector, 0);
+
+        if (shardTopGroups[shardIDX] != null) {
+          for (int i = 0; i < shardTopGroups[shardIDX].groups.length; i++) {
+            for (int j = 0; j < shardTopGroups[shardIDX].groups[i].scoreDocs.length; j++) {
+              shardTopGroups[shardIDX].groups[i].scoreDocs[j].shardIndex = shardIDX;
+            }
+          }
+        }
+
         if (VERBOSE) {
           System.out.println(" " + shardTopGroups[shardIDX].groups.length + " shard[" + shardIDX + "] groups:");
           for(GroupDocs<BytesRef> group : shardTopGroups[shardIDX].groups) {
