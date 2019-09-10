@@ -357,6 +357,13 @@ public abstract class FieldComparator<T> {
     public LongComparator(int numHits, String field, Long missingValue) {
       super(field, missingValue != null ? missingValue : 0L);
       values = new long[numHits];
+
+      //TODO: atris
+      for (int i = 0; i < values.length; i++) {
+        values[i] = Long.MAX_VALUE;
+      }
+      //TODO: atris
+      this.bottom = values[0];
     }
 
     private long getValueForDoc(int doc) throws IOException {
@@ -384,6 +391,8 @@ public abstract class FieldComparator<T> {
     
     @Override
     public void setBottom(final int bottom) {
+      //TODO: atris
+      System.out.println("Setting value " + bottom);
       this.bottom = values[bottom];
     }
 

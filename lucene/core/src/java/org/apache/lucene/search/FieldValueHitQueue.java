@@ -18,6 +18,7 @@ package org.apache.lucene.search;
 
 
 import java.io.IOException;
+import java.util.function.Supplier;
 
 import org.apache.lucene.index.LeafReaderContext;
 import org.apache.lucene.util.PriorityQueue;
@@ -29,7 +30,25 @@ import org.apache.lucene.util.PriorityQueue;
  * @since 2.9
  * @see IndexSearcher#search(Query,int,Sort)
  */
-public abstract class FieldValueHitQueue<T extends FieldValueHitQueue.Entry> extends PriorityQueue<T> {
+public abstract class FieldValueHitQueue extends PriorityQueue<FieldValueHitQueue.Entry> {
+
+  /**
+   * Sentinel populating lambda which uses local hitcount
+   * to assign correct slots to sentinel objects
+   */
+  private static class HitCountSentinelPopulator implements Supplier<FieldValueHitQueue.Entry> {
+    private int sentinelCount;
+    private final boolean prePopulate;
+
+    public HitCountSentinelPopulator(final boolean prePopulate) {
+      this.prePopulate = prePopulate;
+    }
+
+    @Override
+    public Entry get() {
+      return new Entry(sentinelCount++, Integer.MAX_VALUE);
+    }
+  }
 
   /**
    * Extension of ScoreDoc to also store the 
@@ -39,7 +58,7 @@ public abstract class FieldValueHitQueue<T extends FieldValueHitQueue.Entry> ext
     public int slot;
 
     public Entry(int slot, int doc) {
-      super(doc, Float.NaN);
+      super(doc, Float.NEGATIVE_INFINITY);
       this.slot = slot;
     }
     
@@ -53,13 +72,13 @@ public abstract class FieldValueHitQueue<T extends FieldValueHitQueue.Entry> ext
    * An implementation of {@link FieldValueHitQueue} which is optimized in case
    * there is just one comparator.
    */
-  private static final class OneComparatorFieldValueHitQueue<T extends FieldValueHitQueue.Entry> extends FieldValueHitQueue<T> {
+  private static final class OneComparatorFieldValueHitQueue<T extends FieldValueHitQueue.Entry> extends FieldValueHitQueue {
     
     private final int oneReverseMul;
     private final FieldComparator<?> oneComparator;
-    
-    public OneComparatorFieldValueHitQueue(SortField[] fields, int size) {
-      super(fields, size);
+
+    public OneComparatorFieldValueHitQueue(SortField[] fields, int size, boolean prePopulate) {
+      super(fields, size, prePopulate);
 
       assert fields.length == 1;
       oneComparator = comparators[0];
@@ -93,10 +112,10 @@ public abstract class FieldValueHitQueue<T extends FieldValueHitQueue.Entry> ext
    * An implementation of {@link FieldValueHitQueue} which is optimized in case
    * there is more than one comparator.
    */
-  private static final class MultiComparatorsFieldValueHitQueue<T extends FieldValueHitQueue.Entry> extends FieldValueHitQueue<T> {
+  private static final class MultiComparatorsFieldValueHitQueue<T extends FieldValueHitQueue.Entry> extends FieldValueHitQueue {
 
-    public MultiComparatorsFieldValueHitQueue(SortField[] fields, int size) {
-      super(fields, size);
+    public MultiComparatorsFieldValueHitQueue(SortField[] fields, int size, boolean prePopulate) {
+      super(fields, size, prePopulate);
     }
   
     @Override
@@ -121,8 +140,8 @@ public abstract class FieldValueHitQueue<T extends FieldValueHitQueue.Entry> ext
   }
   
   // prevent instantiation and extension.
-  private FieldValueHitQueue(SortField[] fields, int size) {
-    super(size);
+  private FieldValueHitQueue(SortField[] fields, int size, boolean prePopulate) {
+    super(size, new HitCountSentinelPopulator(prePopulate));
     // When we get here, fields.length is guaranteed to be > 0, therefore no
     // need to check it again.
     
@@ -153,16 +172,16 @@ public abstract class FieldValueHitQueue<T extends FieldValueHitQueue.Entry> ext
    * @param size
    *          The number of hits to retain. Must be greater than zero.
    */
-  public static <T extends FieldValueHitQueue.Entry> FieldValueHitQueue<T> create(SortField[] fields, int size) {
+  public static <T extends FieldValueHitQueue.Entry> FieldValueHitQueue create(SortField[] fields, int size, boolean prePopulate) {
 
     if (fields.length == 0) {
       throw new IllegalArgumentException("Sort must contain at least one field");
     }
 
     if (fields.length == 1) {
-      return new OneComparatorFieldValueHitQueue<>(fields, size);
+      return new OneComparatorFieldValueHitQueue<>(fields, size, prePopulate);
     } else {
-      return new MultiComparatorsFieldValueHitQueue<>(fields, size);
+      return new MultiComparatorsFieldValueHitQueue<>(fields, size, prePopulate);
     }
   }
   
@@ -186,6 +205,7 @@ public abstract class FieldValueHitQueue<T extends FieldValueHitQueue.Entry> ext
   protected final SortField[] fields;
   protected final FieldComparator<?>[] comparators;
   protected final int[] reverseMul;
+  private final int[] sentinelCounter = new int[1];
 
   @Override
   protected abstract boolean lessThan (final Entry a, final Entry b);

@@ -51,13 +51,25 @@ public abstract class TopFieldCollector extends TopDocsCollector<Entry> {
     final int reverseMul;
     Scorable scorer;
 
-    MultiComparatorLeafCollector(LeafFieldComparator[] comparators, int[] reverseMul) {
+    MultiComparatorLeafCollector(LeafFieldComparator[] comparators, int[] reverseMul,
+                                 boolean isQueuePrePopulated, int numHits) {
       if (comparators.length == 1) {
         this.reverseMul = reverseMul[0];
         this.comparator = comparators[0];
       } else {
         this.reverseMul = 1;
         this.comparator = new MultiLeafFieldComparator(comparators, reverseMul);
+      }
+
+      if (isQueuePrePopulated) {
+        try {
+          for (int i = 0; i < numHits; i++) {
+            comparator.copy(i, Integer.MAX_VALUE);
+          }
+          comparator.setBottom(0);
+        } catch (IOException e) {
+          throw new RuntimeException(e.getMessage());
+        }
       }
     }
 
@@ -98,13 +110,14 @@ public abstract class TopFieldCollector extends TopDocsCollector<Entry> {
    */
   private static class SimpleFieldCollector extends TopFieldCollector {
     final Sort sort;
-    final FieldValueHitQueue<Entry> queue;
+    final FieldValueHitQueue queue;
 
-    public SimpleFieldCollector(Sort sort, FieldValueHitQueue<Entry> queue, int numHits,
+    public SimpleFieldCollector(Sort sort, FieldValueHitQueue queue, int numHits,
                                 HitsThresholdChecker hitsThresholdChecker) {
       super(queue, numHits, hitsThresholdChecker, sort.needsScores());
       this.sort = sort;
       this.queue = queue;
+      this.bottom = queue.top();
     }
 
     @Override
@@ -116,7 +129,7 @@ public abstract class TopFieldCollector extends TopDocsCollector<Entry> {
       final Sort indexSort = context.reader().getMetaData().getSort();
       final boolean canEarlyTerminate = canEarlyTerminate(sort, indexSort);
 
-      return new MultiComparatorLeafCollector(comparators, reverseMul) {
+      return new MultiComparatorLeafCollector(comparators, reverseMul, queue.size() > 0, queue.size()) {
 
         boolean collectedAllCompetitiveHits = false;
 
@@ -130,7 +143,7 @@ public abstract class TopFieldCollector extends TopDocsCollector<Entry> {
         public void collect(int doc) throws IOException {
           ++totalHits;
           hitsThresholdChecker.incrementHitCount();
-          if (queueFull) {
+
             if (collectedAllCompetitiveHits || reverseMul * comparator.compareBottom(doc) <= 0) {
               // since docs are visited in doc Id order, if compare is 0, it means
               // this document is largest than anything else in the queue, and
@@ -155,18 +168,6 @@ public abstract class TopFieldCollector extends TopDocsCollector<Entry> {
             updateBottom(doc);
             comparator.setBottom(bottom.slot);
             updateMinCompetitiveScore(scorer);
-          } else {
-            // Startup transient: queue hasn't gathered numHits yet
-            final int slot = totalHits - 1;
-
-            // Copy hit into queue
-            comparator.copy(slot, doc);
-            add(slot, doc);
-            if (queueFull) {
-              comparator.setBottom(bottom.slot);
-              updateMinCompetitiveScore(scorer);
-            }
-          }
         }
 
       };
@@ -181,10 +182,10 @@ public abstract class TopFieldCollector extends TopDocsCollector<Entry> {
 
     final Sort sort;
     int collectedHits;
-    final FieldValueHitQueue<Entry> queue;
+    final FieldValueHitQueue queue;
     final FieldDoc after;
 
-    public PagingFieldCollector(Sort sort, FieldValueHitQueue<Entry> queue, FieldDoc after, int numHits,
+    public PagingFieldCollector(Sort sort, FieldValueHitQueue queue, FieldDoc after, int numHits,
                                 HitsThresholdChecker hitsThresholdChecker) {
       super(queue, numHits, hitsThresholdChecker, sort.needsScores());
       this.sort = sort;
@@ -206,7 +207,7 @@ public abstract class TopFieldCollector extends TopDocsCollector<Entry> {
       final int afterDoc = after.doc - docBase;
       final Sort indexSort = context.reader().getMetaData().getSort();
       final boolean canEarlyTerminate = canEarlyTerminate(sort, indexSort);
-      return new MultiComparatorLeafCollector(queue.getComparators(context), queue.getReverseMul()) {
+      return new MultiComparatorLeafCollector(queue.getComparators(context), queue.getReverseMul(), queue.size() > 0, queue.size()) {
 
         boolean collectedAllCompetitiveHits = false;
 
@@ -298,7 +299,7 @@ public abstract class TopFieldCollector extends TopDocsCollector<Entry> {
   // internal versions. If someone will define a constructor with any other
   // visibility, then anyone will be able to extend the class, which is not what
   // we want.
-  private TopFieldCollector(FieldValueHitQueue<Entry> pq, int numHits,
+  private TopFieldCollector(FieldValueHitQueue pq, int numHits,
                             HitsThresholdChecker hitsThresholdChecker, boolean needsScores) {
     super(pq);
     this.needsScores = needsScores;
@@ -326,7 +327,7 @@ public abstract class TopFieldCollector extends TopDocsCollector<Entry> {
   }
 
   protected void updateMinCompetitiveScore(Scorable scorer) throws IOException {
-    if (canSetMinScore && hitsThresholdChecker.isThresholdReached() && queueFull) {
+    if (canSetMinScore && hitsThresholdChecker.isThresholdReached()) {
       assert bottom != null && firstComparator != null;
       float minScore = firstComparator.value(bottom.slot);
       scorer.setMinCompetitiveScore(minScore);
@@ -410,7 +411,7 @@ public abstract class TopFieldCollector extends TopDocsCollector<Entry> {
       throw new IllegalArgumentException("hitsThresholdChecker should not be null");
     }
 
-    FieldValueHitQueue<Entry> queue = FieldValueHitQueue.create(sort.fields, numHits);
+    FieldValueHitQueue queue = FieldValueHitQueue.create(sort.fields, numHits, true);
 
     if (after == null) {
       return new SimpleFieldCollector(sort, queue, numHits, hitsThresholdChecker);
@@ -511,7 +512,7 @@ public abstract class TopFieldCollector extends TopDocsCollector<Entry> {
   @Override
   protected void populateResults(ScoreDoc[] results, int howMany) {
     // avoid casting if unnecessary.
-    FieldValueHitQueue<Entry> queue = (FieldValueHitQueue<Entry>) pq;
+    FieldValueHitQueue queue = (FieldValueHitQueue) pq;
     for (int i = howMany - 1; i >= 0; i--) {
       results[i] = queue.fillFields(queue.pop());
     }
@@ -524,7 +525,7 @@ public abstract class TopFieldCollector extends TopDocsCollector<Entry> {
     }
 
     // If this is a maxScoring tracking collector and there were no results,
-    return new TopFieldDocs(new TotalHits(totalHits, totalHitsRelation), results, ((FieldValueHitQueue<Entry>) pq).getFields());
+    return new TopFieldDocs(new TotalHits(totalHits, totalHitsRelation), results, ((FieldValueHitQueue) pq).getFields());
   }
 
   @Override
