@@ -19,6 +19,7 @@ package org.apache.lucene.search;
 
 import java.io.IOException;
 import java.util.Collection;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.apache.lucene.index.LeafReaderContext;
 
@@ -49,13 +50,16 @@ public abstract class TopScoreDocCollector extends TopDocsCollector<ScoreDoc> {
 
   private static class SimpleTopScoreDocCollector extends TopScoreDocCollector {
 
-    SimpleTopScoreDocCollector(int numHits, HitsThresholdChecker hitsThresholdChecker) {
-      super(numHits, hitsThresholdChecker);
+    SimpleTopScoreDocCollector(int numHits, HitsThresholdChecker hitsThresholdChecker,
+                               BottomValueChecker bottomValueChecker) {
+      super(numHits, hitsThresholdChecker, bottomValueChecker);
     }
 
     @Override
     public LeafCollector getLeafCollector(LeafReaderContext context) throws IOException {
       final int docBase = context.docBase;
+      //TODO: Should this be just boolean[1]?
+      final AtomicBoolean useGlobalScore = new AtomicBoolean();
       return new ScorerLeafCollector() {
 
         @Override
@@ -74,7 +78,21 @@ public abstract class TopScoreDocCollector extends TopDocsCollector<ScoreDoc> {
           totalHits++;
           hitsThresholdChecker.incrementHitCount();
 
-          if (score <= pqTop.score) {
+          boolean nonCompetitiveHit;
+          if (bottomValueChecker != null && useGlobalScore.get()) {
+            nonCompetitiveHit = score <= (float) bottomValueChecker.getBottomValue();
+          } else {
+            nonCompetitiveHit = score <= pqTop.score;
+          }
+
+          if (nonCompetitiveHit) {
+            // Since the queue is prepopulated with sentinel objects, getting here means that the local
+            // priority queue is full
+            if (bottomValueChecker != null && !(useGlobalScore.get())) {
+              bottomValueChecker.updateThreadLocalBottomValue(pqTop.score);
+              useGlobalScore.compareAndSet(false, true);
+            }
+
             if (totalHitsRelation == TotalHits.Relation.EQUAL_TO && hitsThresholdChecker.isThresholdReached()) {
               // we just reached totalHitsThreshold, we can start setting the min
               // competitive score now
@@ -89,6 +107,11 @@ public abstract class TopScoreDocCollector extends TopDocsCollector<ScoreDoc> {
           pqTop.score = score;
           pqTop = pq.updateTop();
           updateMinCompetitiveScore(scorer);
+
+          if (useGlobalScore.get()) {
+            assert bottomValueChecker != null;
+            bottomValueChecker.updateThreadLocalBottomValue(pqTop.score);
+          }
         }
 
       };
@@ -100,8 +123,9 @@ public abstract class TopScoreDocCollector extends TopDocsCollector<ScoreDoc> {
     private final ScoreDoc after;
     private int collectedHits;
 
-    PagingTopScoreDocCollector(int numHits, ScoreDoc after, HitsThresholdChecker hitsThresholdChecker) {
-      super(numHits, hitsThresholdChecker);
+    PagingTopScoreDocCollector(int numHits, ScoreDoc after, HitsThresholdChecker hitsThresholdChecker,
+                               BottomValueChecker bottomValueChecker) {
+      super(numHits, hitsThresholdChecker, bottomValueChecker);
       this.after = after;
       this.collectedHits = 0;
     }
@@ -195,10 +219,11 @@ public abstract class TopScoreDocCollector extends TopDocsCollector<ScoreDoc> {
    * objects.
    */
   public static TopScoreDocCollector create(int numHits, ScoreDoc after, int totalHitsThreshold) {
-    return create(numHits, after, HitsThresholdChecker.create(totalHitsThreshold));
+    return create(numHits, after, HitsThresholdChecker.create(totalHitsThreshold), null);
   }
 
-  static TopScoreDocCollector create(int numHits, ScoreDoc after, HitsThresholdChecker hitsThresholdChecker) {
+  static TopScoreDocCollector create(int numHits, ScoreDoc after, HitsThresholdChecker hitsThresholdChecker,
+                                     BottomValueChecker bottomValueChecker) {
 
     if (numHits <= 0) {
       throw new IllegalArgumentException("numHits must be > 0; please use TotalHitCountCollector if you just need the total hit count");
@@ -209,9 +234,9 @@ public abstract class TopScoreDocCollector extends TopDocsCollector<ScoreDoc> {
     }
 
     if (after == null) {
-      return new SimpleTopScoreDocCollector(numHits, hitsThresholdChecker);
+      return new SimpleTopScoreDocCollector(numHits, hitsThresholdChecker, bottomValueChecker);
     } else {
-      return new PagingTopScoreDocCollector(numHits, after, hitsThresholdChecker);
+      return new PagingTopScoreDocCollector(numHits, after, hitsThresholdChecker, bottomValueChecker);
     }
   }
 
@@ -223,10 +248,11 @@ public abstract class TopScoreDocCollector extends TopDocsCollector<ScoreDoc> {
     return new CollectorManager<>() {
 
       private final HitsThresholdChecker hitsThresholdChecker = HitsThresholdChecker.createShared(totalHitsThreshold);
+      private final BottomValueChecker bottomValueChecker = BottomValueChecker.createMaxBottomScoreChecker();
 
       @Override
       public TopScoreDocCollector newCollector() throws IOException {
-        return TopScoreDocCollector.create(numHits, after, hitsThresholdChecker);
+        return TopScoreDocCollector.create(numHits, after, hitsThresholdChecker, bottomValueChecker);
       }
 
       @Override
@@ -244,9 +270,10 @@ public abstract class TopScoreDocCollector extends TopDocsCollector<ScoreDoc> {
 
   ScoreDoc pqTop;
   final HitsThresholdChecker hitsThresholdChecker;
+  final BottomValueChecker bottomValueChecker;
 
   // prevents instantiation
-  TopScoreDocCollector(int numHits, HitsThresholdChecker hitsThresholdChecker) {
+  TopScoreDocCollector(int numHits, HitsThresholdChecker hitsThresholdChecker, BottomValueChecker bottomValueChecker) {
     super(new HitQueue(numHits, true));
     assert hitsThresholdChecker != null;
 
@@ -254,6 +281,7 @@ public abstract class TopScoreDocCollector extends TopDocsCollector<ScoreDoc> {
     // that at this point top() is already initialized.
     pqTop = pq.top();
     this.hitsThresholdChecker = hitsThresholdChecker;
+    this.bottomValueChecker = bottomValueChecker;
   }
 
   @Override

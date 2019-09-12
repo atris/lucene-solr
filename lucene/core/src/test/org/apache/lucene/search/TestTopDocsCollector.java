@@ -114,7 +114,7 @@ public class TestTopDocsCollector extends LuceneTestCase {
     return tdc;
   }
 
-  private TopDocs doConcurrentSearchWithThreshold(int numResults, int thresHold) throws IOException {
+  private TopDocs doConcurrentSearchWithThreshold(int numResults, int thresHold, IndexReader reader) throws IOException {
     Query q = new MatchAllDocsQuery();
     ExecutorService service = new ThreadPoolExecutor(4, 4, 0L, TimeUnit.MILLISECONDS,
         new LinkedBlockingQueue<Runnable>(),
@@ -339,7 +339,30 @@ public class TestTopDocsCollector extends LuceneTestCase {
     w.close();
 
     TopDocsCollector collector = doSearchWithThreshold(5, 10);
-    TopDocs tdc = doConcurrentSearchWithThreshold(5, 10);
+    TopDocs tdc = doConcurrentSearchWithThreshold(5, 10, reader);
+    TopDocs tdc2 = collector.topDocs();
+
+    CheckHits.checkEqual(q, tdc.scoreDocs, tdc2.scoreDocs);
+
+    reader.close();
+    dir.close();
+  }
+
+  public void testGlobalScore() throws Exception {
+    Directory dir = newDirectory();
+    RandomIndexWriter writer = new RandomIndexWriter(random(), dir);
+    for (int i = 0; i < 5000; i++) {
+      writer.addDocument(new Document());
+      if (i % 100 == 0) {
+        writer.commit();
+      }
+    }
+    IndexReader reader = writer.getReader();
+    writer.close();
+
+    Query q = new MatchAllDocsQuery();
+    TopDocsCollector collector = doSearchWithThreshold(5, 10);
+    TopDocs tdc = doConcurrentSearchWithThreshold(5, 10, reader);
     TopDocs tdc2 = collector.topDocs();
 
     CheckHits.checkEqual(q, tdc.scoreDocs, tdc2.scoreDocs);
