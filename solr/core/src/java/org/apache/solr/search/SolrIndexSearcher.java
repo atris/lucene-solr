@@ -241,7 +241,7 @@ public class SolrIndexSearcher extends IndexSearcher implements Closeable, SolrI
   public SolrIndexSearcher(SolrCore core, String path, IndexSchema schema, String name, DirectoryReader r,
       boolean closeReader, boolean enableCache, boolean reserveDirectory, DirectoryFactory directoryFactory)
           throws IOException {
-    super(wrapReader(core, r));
+    super(wrapReader(core, r), core.getCoreContainer().getCollectorExecutor());
 
     this.path = path;
     this.directoryFactory = directoryFactory;
@@ -1612,6 +1612,7 @@ public class SolrIndexSearcher extends IndexSearcher implements Closeable, SolrI
           hitsRelation = topDocs.totalHits.relation;
         }
         nDocsReturned = topDocs.scoreDocs.length;
+        maxScore = totalHits > 0 ? (maxScoreCollector == null ? Float.NaN : maxScoreCollector.getMaxScore()) : 0.0f;
       } else {
         log.debug("using collectormanager");
         CollectorManagerResult result = searchCollectorManagers(len, cmd, query, true, true, false); // nocommit: need docset should be false
@@ -1620,6 +1621,9 @@ public class SolrIndexSearcher extends IndexSearcher implements Closeable, SolrI
         maxScore = result.maxScore;
         nDocsReturned = result.topDocs.scoreDocs.length;
         topDocs = result.topDocs;
+
+        //TODO: Is this correct?
+        hitsRelation = topDocs.totalHits.relation;
       }
 
       if (cmd.getSort() != null && query instanceof RankQuery == false && (cmd.getFlags() & GET_SCORES) != 0) {
@@ -1798,7 +1802,13 @@ public class SolrIndexSearcher extends IndexSearcher implements Closeable, SolrI
           collectors.add(maxScoreCollector);
         }
 
+        totalHits = topCollector.getTotalHits();
+        set = DocSetUtil.getDocSet(setCollector, this);
+
+        assert (totalHits == set.size()) || qr.isPartialResults();
+
         topDocs = topCollector.topDocs(0, len);
+        maxScore = totalHits > 0 ? (maxScoreCollector == null ? Float.NaN : maxScoreCollector.getMaxScore()) : 0.0f;
       } else {
         log.debug("using collectormanager");
         CollectorManagerResult result = searchCollectorManagers(len, cmd, query, true, true, true);

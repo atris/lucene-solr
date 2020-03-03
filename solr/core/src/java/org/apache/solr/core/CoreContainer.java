@@ -198,6 +198,8 @@ public class CoreContainer {
   private volatile ExecutorService coreContainerWorkExecutor = ExecutorUtil.newMDCAwareCachedThreadPool(
       new SolrNamedThreadFactory("coreContainerWorkExecutor"));
 
+  final private ExecutorService collectorExecutor;
+
   private final OrderedExecutor replayUpdatesExecutor;
 
   @SuppressWarnings({"rawtypes"})
@@ -365,6 +367,9 @@ public class CoreContainer {
     } catch (Exception e) {
       log.warn("Unable to create [{}].  Features requiring this directory may fail.", userFilesPath, e);
     }
+
+    this.collectorExecutor = ExecutorUtil.newMDCAwareCachedThreadPool(cfg.getCollectorsPoolSize(),
+        new SolrNamedThreadFactory("searcherCollectorExecutor"));
   }
 
   @SuppressWarnings({"unchecked"})
@@ -559,6 +564,7 @@ public class CoreContainer {
     cfg = null;
     containerProperties = null;
     replayUpdatesExecutor = null;
+    this.collectorExecutor = ExecutorUtil.newMDCAwareCachedThreadPool(new SolrNamedThreadFactory("searcherCollectorExecutor"));
   }
 
   public static CoreContainer createAndLoad(Path solrHome) {
@@ -987,6 +993,7 @@ public class CoreContainer {
       log.info("Shutting down CoreContainer instance={}", System.identityHashCode(this));
     }
 
+    ExecutorUtil.shutdownAndAwaitTermination(collectorExecutor);
     ExecutorUtil.shutdownAndAwaitTermination(coreContainerAsyncTaskExecutor);
     ExecutorService customThreadPool = ExecutorUtil.newMDCAwareCachedThreadPool(new SolrNamedThreadFactory("closeThreadPool"));
 
@@ -2107,6 +2114,10 @@ public class CoreContainer {
    */
   public void runAsync(Runnable r) {
     coreContainerAsyncTaskExecutor.submit(r);
+  }
+  
+  public ExecutorService getCollectorExecutor() {
+    return collectorExecutor;
   }
 }
 
