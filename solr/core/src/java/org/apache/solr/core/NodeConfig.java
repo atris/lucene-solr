@@ -495,8 +495,7 @@ public class NodeConfig {
       return new NodeConfig(nodeName, coreRootDirectory, solrDataHome, booleanQueryMaxClauseCount,
                             configSetBaseDirectory, sharedLibDirectory, shardHandlerFactoryConfig,
                             updateShardHandlerConfig, coreAdminHandlerClass, collectionsAdminHandlerClass, healthCheckHandlerClass, infoHandlerClass, configSetsHandlerClass,
-<<<<<<< HEAD
-                            logWatcherConfig, cloudConfig, coreLoadThreads, replayUpdatesThreads, transientCacheSize, useSchemaCache, managementPath,
+                            logWatcherConfig, cloudConfig, coreLoadThreads, replayUpdatesThreads, collectorsPoolSize, transientCacheSize, useSchemaCache, managementPath,
                             solrHome, loader, solrProperties,
                             backupRepositoryPlugins, metricsConfig, transientCacheConfig, tracerConfig, fromZookeeper, allowPaths);
     }
@@ -504,10 +503,6 @@ public class NodeConfig {
     public NodeConfigBuilder setSolrResourceLoader(SolrResourceLoader resourceLoader) {
       this.loader = resourceLoader;
       return this;
-=======
-                            logWatcherConfig, cloudConfig, coreLoadThreads, replayUpdatesThreads, collectorsPoolSize, transientCacheSize, useSchemaCache, managementPath, loader, solrProperties,
-                            backupRepositoryPlugins, metricsConfig, transientCacheConfig, tracerConfig);
->>>>>>> SOLR-13350: Adding collectors executors to CoreContainer
     }
   }
 }
