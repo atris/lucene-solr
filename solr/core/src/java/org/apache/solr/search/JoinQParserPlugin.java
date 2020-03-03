@@ -22,7 +22,6 @@ import java.util.List;
 import java.util.Set;
 
 import org.apache.lucene.search.Query;
-import org.apache.lucene.search.join.ScoreMode;
 import org.apache.solr.common.SolrException;
 import org.apache.solr.common.params.SolrParams;
 import org.apache.solr.common.util.NamedList;

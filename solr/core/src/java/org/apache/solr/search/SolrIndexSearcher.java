@@ -79,6 +79,7 @@ import org.apache.solr.response.SolrQueryResponse;
 import org.apache.solr.schema.IndexSchema;
 import org.apache.solr.schema.SchemaField;
 import org.apache.solr.search.facet.UnInvertedField;
+import org.apache.solr.search.join.GraphQuery;
 import org.apache.solr.search.stats.StatsCache;
 import org.apache.solr.search.stats.StatsSource;
 import org.apache.solr.uninverting.UninvertingReader;
@@ -1593,7 +1594,7 @@ public class SolrIndexSearcher extends IndexSearcher implements Closeable, SolrI
       TopDocs topDocs;
       log.info("calling from 2, query: "+query.getClass()); // nocommit
       if (pf.postFilter != null || cmd.getSegmentTerminateEarly() || cmd.getTimeAllowed() > 0 
-          || query instanceof RankQuery) {
+          || query instanceof RankQuery || query instanceof GraphQuery) {
         log.debug("skipping collector manager");
         final TopDocsCollector<?> topCollector = buildTopDocsCollector(len, cmd);
         MaxScoreCollector maxScoreCollector = null;
@@ -1790,8 +1791,9 @@ public class SolrIndexSearcher extends IndexSearcher implements Closeable, SolrI
       qr.setNextCursorMark(cmd.getCursorMark());
     } else {
       TopDocs topDocs;
-      if (pf.postFilter != null || cmd.getSegmentTerminateEarly() || cmd.getTimeAllowed() > 0 || query instanceof RankQuery) {
 
+      if (pf.postFilter != null || cmd.getSegmentTerminateEarly() || cmd.getTimeAllowed() > 0
+          || query instanceof RankQuery || query instanceof GraphQuery) {
         final TopDocsCollector topCollector = buildTopDocsCollector(len, cmd);
         DocSetCollector setCollector = new DocSetCollector(maxDoc);
         MaxScoreCollector maxScoreCollector = null;
