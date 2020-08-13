@@ -1651,9 +1651,7 @@ public class SolrIndexSearcher extends IndexSearcher implements Closeable, SolrI
     CollectorManager<MultiCollector, CollectorManagerResult> manager = new CollectorManager<MultiCollector, CollectorManagerResult>() {
       @Override
       public MultiCollector newCollector() throws IOException {
-        // nocommit: Here, creating a MultiCollector for every segment (correctness > speed).
-        // Need to explore sharing a single MultiCollector with every segment. Are these
-        // sub-collectors thread-safe? DocSetCollector seems like not thread-safe, does someone know?
+        // TODO: DocCollector is not thread safe.
         Collection<Collector> collectors = new ArrayList<Collector>();
         if (needTopDocs) collectors.add(buildTopDocsCollector(len, cmd));
         if (needMaxScore) collectors.add(new MaxScoreCollector());
@@ -1674,11 +1672,15 @@ public class SolrIndexSearcher extends IndexSearcher implements Closeable, SolrI
           MaxScoreCollector maxScoreCollector = needMaxScore? ((MaxScoreCollector) subCollectors.get(c++)): null;
           DocSetCollector docSetCollector = needDocSet? ((DocSetCollector) subCollectors.get(c++)): null;
           
-          if (needTopDocs)  topDocs[i++] = (topDocsCollector instanceof TopFieldCollector)? ((TopFieldCollector)topDocsCollector).topDocs(0, len): topDocsCollector.topDocs(0, len);
+          if (needTopDocs)  topDocs[i++] = topDocsCollector.topDocs(0, len);
           if (needMaxScore) 
             if (!Float.isNaN(maxScoreCollector.getMaxScore()))
               maxScore = Math.max(maxScore, maxScoreCollector.getMaxScore());
-          if (needDocSet)   docSet = docSet.union(docSetCollector.getDocSet());
+          if (needDocSet) {
+            if (docSet == null) {
+              docSet = docSetCollector.getDocSet(); // TODO: Should this be always true? Convert null check into assert?
+            }
+          }
         }
         TopDocs mergedTopDocs;
         if (topDocs != null && topDocs.length>0 && topDocs[0] instanceof TopFieldDocs) {
@@ -1710,10 +1712,10 @@ public class SolrIndexSearcher extends IndexSearcher implements Closeable, SolrI
   }
 
   class CollectorManagerResult {
-    TopDocs topDocs;
-    DocSet docSet;
-    float maxScore;
-    int totalHits;
+    final TopDocs topDocs;
+    final DocSet docSet;
+    final float maxScore;
+    final int totalHits;
     
     public CollectorManagerResult(TopDocs topDocs, DocSet docSet, float maxScore, int totalHits) {
       this.topDocs = topDocs;

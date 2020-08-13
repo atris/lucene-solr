@@ -198,7 +198,7 @@ public class CoreContainer {
   private volatile ExecutorService coreContainerWorkExecutor = ExecutorUtil.newMDCAwareCachedThreadPool(
       new SolrNamedThreadFactory("coreContainerWorkExecutor"));
 
-  final private ExecutorService collectorExecutor;
+  private final ExecutorService collectorExecutor;
 
   private final OrderedExecutor replayUpdatesExecutor;
 
@@ -369,7 +369,7 @@ public class CoreContainer {
     }
 
     this.collectorExecutor = ExecutorUtil.newMDCAwareCachedThreadPool(cfg.getCollectorsPoolSize(),
-        new SolrNamedThreadFactory("searcherCollectorExecutor"));
+        new SolrNamedThreadFactory("searcherCollector"));
   }
 
   @SuppressWarnings({"unchecked"})

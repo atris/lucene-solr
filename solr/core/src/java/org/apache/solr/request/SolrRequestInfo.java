@@ -80,24 +80,6 @@ public class SolrRequestInfo {
     }
   }
 
-  public static void init() {
-    Deque<SolrRequestInfo> stack = threadLocal.get();
-
-    if (!stack.isEmpty()) {
-      SolrRequestInfo info = stack.pop();
-
-      if (info != null && info.initHooks != null) {
-        for (Callable hook : info.initHooks) {
-          try {
-            hook.call(null);
-          } catch (Exception e) {
-            SolrException.log(log, "Exception during init hook", e);
-          }
-        }
-      }
-    }
-  }
-
   /** Removes the most recent SolrRequestInfo from the stack */
   public static void clearRequestInfo() {
     Deque<SolrRequestInfo> stack = threadLocal.get();
